@@ -5,7 +5,7 @@
 
 //includes
 #include <Ultrasonic.h>
-#include <Encoder.h>      //doesn't do anything yet
+#include <Encoder.h>
 
 //directions for move_robot function
 enum directions
@@ -40,11 +40,58 @@ enum directions
 Ultrasonic frontSensor(US_FRONT_TRIG, US_FRONT_ECHO, 10000UL);
 Ultrasonic leftSensor(US_LEFT_TRIG, US_LEFT_ECHO, 10000UL);
 
+Encoder leftEncoder(3, 4);
+Encoder rightEncoder(2, 10);
+
 //global variables
 int lspeed = 150;
 int rspeed = 150;
 bool loop_flag = false;
 double ir_value = 0;
+bool int_motor = false;
+bool pushing = false;
+volatile long leftEncoderStore = 0, rightEncoderStore = 0;
+volatile int rightMotorSpeed = 0, leftMotorSpeed = 0;
+
+//TODO Remove this
+int motor_speed_temp = 70;
+
+void set_speed(int lspeed, int rspeed=-1);
+void move_robot(int t, int dir);
+void driveLeftMotor(int);
+void driveRighttMotor(int);
+
+// interrupt service routine called when timer0 compare A interrupt flag set
+//called on timer0 so every 1ms
+ISR(TIMER0_COMPA_vect) 
+{
+//  if (!pushing) return;
+  
+  if (int_motor) {
+    //leftMotor
+    long encoderReading = leftEncoder.read();
+    int measuredSpeed = abs(leftEncoderStore - encoderReading) * 15;//in rpm
+    leftEncoderStore = encoderReading;
+    if (measuredSpeed > leftMotorSpeed)
+      digitalWrite(LEFT_ENB, LOW);
+    else
+      digitalWrite(LEFT_ENB, HIGH);
+  }
+  
+  else
+  {
+    //rightMotor
+    long encoderReading = rightEncoder.read();
+    long measuredSpeed = abs(rightEncoderStore - encoderReading) * 15;//in rpm
+    rightEncoderStore = encoderReading;
+    if (measuredSpeed > rightMotorSpeed)
+      digitalWrite(RIGHT_ENB, LOW);
+    else
+      digitalWrite(RIGHT_ENB, HIGH);
+  }
+
+  int_motor = !int_motor;
+} 
 
 //setup function
 void setup() {
@@ -61,18 +108,31 @@ void setup() {
   pinMode(LEFT_ENB, OUTPUT);
   pinMode(A0, INPUT);
 
+  //configute avr timer
+  //stolen from https://github.com/player2point0/MineSweeper/blob/master/sketch_jan15a/sketch_jan15a.ino
+  //https://learn.adafruit.com/multi-tasking-the-arduino-part-2/timers
+  //https://www.teachmemicro.com/arduino-timer-interrupt-tutorial/
+  //https://arduino.stackexchange.com/questions/30968/how-do-interrupts-work-on-the-arduino-uno-and-similar-boards
+  OCR0A = 0xAF; // set the compare register A for timer0
+  TIMSK0 |= _BV(OCIE0A);  //enable the compare interrupt A for timer 0  
 
   //set initial speed
-  analogWrite(RIGHT_ENB, rspeed);
-  analogWrite(LEFT_ENB, lspeed);
+//  analogWrite(RIGHT_ENB, rspeed);
+//  analogWrite(LEFT_ENB, lspeed);
 
   // spin!
-  move_robot(0, DIR_CLOCKWISE);
-  set_speed(100);
+    driveLeftMotor(motor_speed_temp);
+    driveRightMotor(-motor_speed_temp);
+//  move_robot(0, DIR_CLOCKWISE);
+//  set_speed(100);
 }
 
 void loop() {
 
+//  Serial.println("eee");
+//  delay(1000);
+
+ 
   //determine ultrasonic sensor distance
   int distance = frontSensor.read();
   Serial.println(distance);
@@ -80,45 +140,61 @@ void loop() {
   //if distance is within some range
   if (distance > 5 && distance < 60)
   {
+    //set pushing flag
+    pushing = true;
+    
     //stop the robot for 2s
-    Serial.print("s");
-    move_robot(2000, DIR_STOP);
-
-    //set speed (so the robot moves faster when going forward)
-    Serial.print("S");
-    set_speed(150);
+    Serial.println("stop robot");
+    driveLeftMotor(motor_speed_temp);
+    driveRightMotor(motor_speed_temp);
+    delay(2000);
+//    move_robot(2000, DIR_STOP);
 
     //go forwards for 100ms
-    Serial.print("f");
-    move_robot(100, DIR_BACKWARD); //this is deliberately set to backwards
+    Serial.println("foreward");
+    driveLeftMotor(-motor_speed_temp);
+    driveRightMotor(-motor_speed_temp);
+    delay(100);
+//    move_robot(100, DIR_BACKWARD); //this is deliberately set to backwards
 
     //wait until robot senses line
-    Serial.print("l");
+    Serial.println("wait for line");
     while( ir_value < 980.0 ) 
     {
       ir_value = analogRead(A0);
     }
 
     //reset ir value
-    Serial.print("L");
+    Serial.println("found line");
     ir_value = 0;
 
     //go backwards for 2s
-    Serial.print("b");
-    move_robot(2000, DIR_FORWARD);
+    Serial.println("go backwards");
+    driveLeftMotor(motor_speed_temp);
+    driveRightMotor(motor_speed_temp);
+    delay(2000);
+//    move_robot(2000, DIR_FORWARD);
 
     //stop the robot for 2s
-    Serial.print("s");
-    move_robot(2000, DIR_STOP);
+    Serial.println("stop robot");
+    driveLeftMotor(0);
+    driveRightMotor(0);
+    delay(2000);
+//    move_robot(2000, DIR_STOP);
 
     //set speed (slow for spinning)
     Serial.print("S");
-    set_speed(100);
+//    set_speed(100);
+
+    //clear pushing flag
+    pushing = false;
 
     //go clockwise for 2s
-    Serial.println("g");
-    move_robot(2000, DIR_CLOCKWISE);
-    
+    Serial.println("go clockwise");
+    driveLeftMotor(motor_speed_temp);
+    driveRightMotor(-motor_speed_temp);
+    delay(2000);
+//    move_robot(2000, DIR_CLOCKWISE);
   }
 
   
@@ -130,7 +206,7 @@ void loop() {
 // int lspeed       the speed of the left wheel (or both)
 // int rspeed       the speed of the right wheel
 
-void set_speed(int lspeed, int rspeed=-1)
+void set_speed(int lspeed, int rspeed)
 {
   if (rspeed == -1) rspeed = lspeed;
   
@@ -195,5 +271,30 @@ void move_robot(int t, int dir)
       digitalWrite(LEFT_DIR_2, LOW);
       delay(t);
       break;
+  }
+}
+
+//MOTOR FUNCTIONS
+void driveLeftMotor(int speed){
+  leftMotorSpeed = abs(speed);
+  if (speed > 0){
+    digitalWrite(LEFT_DIR_1, HIGH);
+    digitalWrite(LEFT_DIR_2, LOW);
+  }
+  else{
+    digitalWrite(LEFT_DIR_1, LOW);
+    digitalWrite(LEFT_DIR_2, HIGH);
+  }
+}
+
+void driveRightMotor(int speed){
+  rightMotorSpeed = abs(speed);
+  if (speed > 0){
+    digitalWrite(RIGHT_DIR_1, LOW);
+    digitalWrite(RIGHT_DIR_2, HIGH);
+  }
+  else {
+    digitalWrite(RIGHT_DIR_1, HIGH);
+    digitalWrite(RIGHT_DIR_2, LOW);
   }
 }
