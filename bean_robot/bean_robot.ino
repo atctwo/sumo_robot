@@ -53,10 +53,10 @@ bool pushing = false;
 volatile long leftEncoderStore = 0, rightEncoderStore = 0;
 volatile int rightMotorSpeed = 0, leftMotorSpeed = 0;
 
-//TODO Remove this
-int motor_speed_temp = 70;
+int motor_speed_spin = 40;
+int motor_speed_drive = 120;
 
-void set_speed(int lspeed, int rspeed=-1);
+//function prototypes
 void move_robot(int t, int dir);
 void driveLeftMotor(int);
 void driveRighttMotor(int);
@@ -65,8 +65,7 @@ void driveRighttMotor(int);
 //called on timer0 so every 1ms
 ISR(TIMER0_COMPA_vect) 
 {
-//  if (!pushing) return;
-  
+
   if (int_motor) {
     //leftMotor
     long encoderReading = leftEncoder.read();
@@ -116,22 +115,14 @@ void setup() {
   OCR0A = 0xAF; // set the compare register A for timer0
   TIMSK0 |= _BV(OCIE0A);  //enable the compare interrupt A for timer 0  
 
-  //set initial speed
-//  analogWrite(RIGHT_ENB, rspeed);
-//  analogWrite(LEFT_ENB, lspeed);
-
   // spin!
-    driveLeftMotor(motor_speed_temp);
-    driveRightMotor(-motor_speed_temp);
+    driveLeftMotor(motor_speed_spin);
+    driveRightMotor(-motor_speed_spin);
+    delay(100);
 //  move_robot(0, DIR_CLOCKWISE);
-//  set_speed(100);
 }
 
 void loop() {
-
-//  Serial.println("eee");
-//  delay(1000);
-
  
   //determine ultrasonic sensor distance
   int distance = frontSensor.read();
@@ -140,22 +131,23 @@ void loop() {
   //if distance is within some range
   if (distance > 5 && distance < 60)
   {
-    //set pushing flag
-    pushing = true;
+    //record start encoder position
+    long start_encoder = leftEncoderStore;
     
-    //stop the robot for 2s
+    //stop the robot for 0.5s
+    //atm the robot will drift backwards a bit, that's fine
     Serial.println("stop robot");
-    driveLeftMotor(motor_speed_temp);
-    driveRightMotor(motor_speed_temp);
-    delay(2000);
-//    move_robot(2000, DIR_STOP);
+    driveLeftMotor(0);
+    driveRightMotor(0);
+    delay(500);
+//  move_robot(2000, DIR_STOP);
 
     //go forwards for 100ms
-    Serial.println("foreward");
-    driveLeftMotor(-motor_speed_temp);
-    driveRightMotor(-motor_speed_temp);
+    Serial.println("forward");
+    driveLeftMotor(motor_speed_drive);
+    driveRightMotor(motor_speed_drive);
     delay(100);
-//    move_robot(100, DIR_BACKWARD); //this is deliberately set to backwards
+//  move_robot(100, DIR_BACKWARD); //this is deliberately set to backwards
 
     //wait until robot senses line
     Serial.println("wait for line");
@@ -168,55 +160,50 @@ void loop() {
     Serial.println("found line");
     ir_value = 0;
 
-    //go backwards for 2s
+    //go backwards for 3s
     Serial.println("go backwards");
-    driveLeftMotor(motor_speed_temp);
-    driveRightMotor(motor_speed_temp);
-    delay(2000);
-//    move_robot(2000, DIR_FORWARD);
+    driveLeftMotor(-motor_speed_drive);
+    driveRightMotor(-motor_speed_drive);
+    delay(3000);
 
-    //stop the robot for 2s
+    //store encoder position at line
+    long end_encoder = leftEncoderStore;
+
+    //go backwards for the same distance as the robot went forwards
+    /*
+    while(1)
+    {
+      break;
+      Serial.print("distance: ");
+      Serial.print(end_encoder  - start_encoder);
+      Serial.print("\t\t\telapsed: ");
+      Serial.println(leftEncoderStore - end_encoder);
+
+      //todo: fix this
+      if (end_encoder  - start_encoder < leftEncoderStore - end_encoder) break;
+    }
+    */
+
+    //stop the robot for 0.5s
     Serial.println("stop robot");
     driveLeftMotor(0);
     driveRightMotor(0);
-    delay(2000);
-//    move_robot(2000, DIR_STOP);
+    delay(500);
+//  move_robot(2000, DIR_STOP);
 
-    //set speed (slow for spinning)
-    Serial.print("S");
-//    set_speed(100);
-
-    //clear pushing flag
-    pushing = false;
-
-    //go clockwise for 2s
+    //go clockwise for 0.1s
     Serial.println("go clockwise");
-    driveLeftMotor(motor_speed_temp);
-    driveRightMotor(-motor_speed_temp);
-    delay(2000);
-//    move_robot(2000, DIR_CLOCKWISE);
+    driveLeftMotor(motor_speed_spin);
+    driveRightMotor(-motor_speed_spin);
+    delay(100);
+//  move_robot(2000, DIR_CLOCKWISE);
   }
 
   
 }
 
 
-
-//sets the speed of the robot's wheels.  if you only specify lspeed, rspeed will be set to the same value as lspeed
-// int lspeed       the speed of the left wheel (or both)
-// int rspeed       the speed of the right wheel
-
-void set_speed(int lspeed, int rspeed)
-{
-  if (rspeed == -1) rspeed = lspeed;
-  
-  analogWrite(RIGHT_ENB, rspeed);
-  analogWrite(LEFT_ENB, lspeed);
-}
-
 //move the robot
-// int t            time to delay (in ms) after moving the robot.  the robot will continue to move while the delay is elapsing,
-//                  and will move after the delay has elapsed
 // int dir          the direction to move the robot.  you can pass a number or a member of the "directions" enum
 //                  number            direction
 //                  0                 forward
@@ -224,57 +211,50 @@ void set_speed(int lspeed, int rspeed)
 //                  2                 clockwise
 //                  3                 anticlockwise
 //                  anything else     stop the robot (the robot may coast a bit)
+// int t            time to delay (in ms) after moving the robot.  the robot will continue to move while the delay is elapsing,
+//                  and will move after the delay has elapsed
+// int speed        the speed that the robot will move
 
-void move_robot(int t, int dir)
+void move_robot(int dir, int t, int speed)
 {
   switch(dir)
   {
     case 0: //forward
-      //r -> clockwise
-      digitalWrite(RIGHT_DIR_1, HIGH);
-      digitalWrite(RIGHT_DIR_2, LOW);
-      //l -> anticlockwise
-      digitalWrite(LEFT_DIR_1, LOW);
-      digitalWrite(LEFT_DIR_2, HIGH);
-      delay(t);
+      driveLeftMotor(speed);
+      driveRightMotor(speed);
       break;
 
    case 1: //backwards
-      digitalWrite(RIGHT_DIR_1, LOW);
-      digitalWrite(RIGHT_DIR_2, HIGH);
-      digitalWrite(LEFT_DIR_1, HIGH);
-      digitalWrite(LEFT_DIR_2, LOW);
-      delay(t);
+      driveLeftMotor(-speed);
+      driveRightMotor(-speed);
       break;
 
     case 2: //clockwise
-      digitalWrite(RIGHT_DIR_1, LOW);
-      digitalWrite(RIGHT_DIR_2, HIGH);
-      digitalWrite(LEFT_DIR_1, LOW);
-      digitalWrite(LEFT_DIR_2, HIGH);
-      delay(t);
+      driveLeftMotor(speed);
+      driveRightMotor(-speed);
       break;
 
     case 3: //anticlockwise
-      digitalWrite(RIGHT_DIR_1, HIGH);
-      digitalWrite(RIGHT_DIR_2, LOW);
-      digitalWrite(LEFT_DIR_1, HIGH);
-      digitalWrite(LEFT_DIR_2, LOW);
-      delay(t);
+      driveLeftMotor(speed);
+      driveRightMotor(-speed);
       break;
 
     default:
     case 4: //stop
+      driveLeftMotor(0);
+      driveRightMotor(0);
+      
       digitalWrite(RIGHT_DIR_1, LOW);
       digitalWrite(RIGHT_DIR_2, LOW);
       digitalWrite(LEFT_DIR_1, LOW);
       digitalWrite(LEFT_DIR_2, LOW);
-      delay(t);
       break;
   }
+  delay(t);
 }
 
 //MOTOR FUNCTIONS
+//https://github.com/kmclaughlin/Robot_Platform/blob/master/Firmware/Advanced_Movement/Bare_bones/Bare_bones.ino
 void driveLeftMotor(int speed){
   leftMotorSpeed = abs(speed);
   if (speed > 0){
