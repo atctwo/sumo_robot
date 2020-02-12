@@ -54,7 +54,12 @@ volatile long leftEncoderStore = 0, rightEncoderStore = 0;
 volatile int rightMotorSpeed = 0, leftMotorSpeed = 0;
 
 int motor_speed_spin = 40;
-int motor_speed_drive = 120;
+int motor_speed_drive = 190;
+int time_backwards = 1500;
+int ir_threshold = 950.0;
+int min_distance = 5;
+int max_distance = 60;
+int detect_wait_time = 200;
 
 //function prototypes
 void move_robot(int t, int dir);
@@ -129,7 +134,7 @@ void loop() {
   Serial.println(distance);
 
   //if distance is within some range
-  if (distance > 5 && distance < 60)
+  if (distance > min_distance && distance < max_distance)
   {
     //record start encoder position
     long start_encoder = leftEncoderStore;
@@ -151,7 +156,7 @@ void loop() {
 
     //wait until robot senses line
     Serial.println("wait for line");
-    while( ir_value < 980.0 ) 
+    while( ir_value < ir_threshold ) 
     {
       ir_value = analogRead(A0);
     }
@@ -164,14 +169,14 @@ void loop() {
     Serial.println("go backwards");
     driveLeftMotor(-motor_speed_drive);
     driveRightMotor(-motor_speed_drive);
-    delay(3000);
+    delay(time_backwards);
 
     //store encoder position at line
     long end_encoder = leftEncoderStore;
 
     //go backwards for the same distance as the robot went forwards
-    /*
-    while(1)
+    
+    while(0)
     {
       break;
       Serial.print("distance: ");
@@ -182,7 +187,7 @@ void loop() {
       //todo: fix this
       if (end_encoder  - start_encoder < leftEncoderStore - end_encoder) break;
     }
-    */
+    
 
     //stop the robot for 0.5s
     Serial.println("stop robot");
@@ -191,11 +196,14 @@ void loop() {
     delay(500);
 //  move_robot(2000, DIR_STOP);
 
+    //increase backwards time
+    time_backwards = min(time_backwards + 100, 2500);
+
     //go clockwise for 0.1s
     Serial.println("go clockwise");
     driveLeftMotor(motor_speed_spin);
     driveRightMotor(-motor_speed_spin);
-    delay(100);
+    delay(detect_wait_time);
 //  move_robot(2000, DIR_CLOCKWISE);
   }
 
@@ -257,6 +265,12 @@ void move_robot(int dir, int t, int speed)
 //https://github.com/kmclaughlin/Robot_Platform/blob/master/Firmware/Advanced_Movement/Bare_bones/Bare_bones.ino
 void driveLeftMotor(int speed){
   leftMotorSpeed = abs(speed);
+  if (speed == 0)
+  {
+    digitalWrite(LEFT_DIR_1, LOW);
+    digitalWrite(LEFT_DIR_2, LOW);
+    return;
+  }
   if (speed > 0){
     digitalWrite(LEFT_DIR_1, HIGH);
     digitalWrite(LEFT_DIR_2, LOW);
@@ -269,6 +283,12 @@ void driveLeftMotor(int speed){
 
 void driveRightMotor(int speed){
   rightMotorSpeed = abs(speed);
+  if (speed == 0)
+  {
+    digitalWrite(RIGHT_DIR_1, LOW);
+    digitalWrite(RIGHT_DIR_2, LOW);
+    return;
+  }
   if (speed > 0){
     digitalWrite(RIGHT_DIR_1, LOW);
     digitalWrite(RIGHT_DIR_2, HIGH);
